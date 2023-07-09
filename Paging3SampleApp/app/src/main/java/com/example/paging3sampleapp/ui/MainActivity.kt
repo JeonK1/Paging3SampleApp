@@ -1,6 +1,7 @@
 package com.example.paging3sampleapp.ui
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
@@ -23,21 +24,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val mainAdapter = MainAdapter()
+    private val pagingAdapter = PagingAdapter()
     private val viewModel: MainViewModel by viewModels()
 
     private var coroutineJob: Job? = null // 중복 방지 체크 용도의 Job
     private val networkStateManager = NetworkStateManager(this)
-    private val scrollListener = object : RecyclerView.OnScrollListener() {
-        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-            super.onScrollStateChanged(recyclerView, newState)
-            if (binding.rvRecyclerView.canScrollVertically(1).not() && coroutineJob == null) {
-                // end of scroll
-                coroutineJob = CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
-                    viewModel.requestNextImageList(networkStateManager.networkState.first())
-                }
-            }
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,17 +38,20 @@ class MainActivity : AppCompatActivity() {
         networkStateManager.register()
 
         binding.rvRecyclerView.apply {
-            adapter = mainAdapter
-            addOnScrollListener(scrollListener)
+            adapter = pagingAdapter
         }
 
         lifecycleScope.launch {
-            viewModel.requestNextImageList(networkStateManager.networkState.first())
-
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.imageList.collectLatest {
-                    mainAdapter.submitList(it)
+                viewModel.pagingDataFlow.collectLatest {
+                    pagingAdapter.submitData(lifecycle, it)
                     coroutineJob = null
+                }
+
+                pagingAdapter.loadStateFlow.collectLatest { loadStates ->
+                    // progressBar visibility
+                    // errorMessage visibility
+                    // retry visibility
                 }
             }
         }
@@ -65,7 +59,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        binding.rvRecyclerView.removeOnScrollListener(scrollListener)
         networkStateManager.unregister()
         coroutineJob?.cancel()
         coroutineJob = null
